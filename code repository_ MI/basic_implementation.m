@@ -1,0 +1,86 @@
+%% This code shows the basic code implememtation of the algorithm,
+%Author: Clarissa. Y. P. W email : C.Y.Wilding@leeds.ac.uk
+%% Experimental Details 
+%target polymer 
+pol.DP= 200;
+pol.wt = 30;
+pol.ReactV = 5;
+%reagent information 
+%DMAm
+ Mon.Eap = 14.1e3; %(J mol)
+ Mon.Ap= 11e6;
+ Mon.Mr= 99.13;  %(g/mol)
+ Mon.dense= 0.962;%(g/mL)
+ Mon.At= 2e11;
+ Mon.Eat=25e3;
+ Mon.alphas = 0.620;
+ Mon.alphaL = 0.180;
+ Mon.Lc =42;
+%BM1640
+ cta.Mr= 238.38; %(g/mol)
+ cta.phi=0.67;
+
+ cta.K=300;
+ cta.Eaadd = 0;
+ cta.Aadd =5.6e6;
+%VA044
+ini.Mr = 323.3;%(g/mol)
+ini.f =0.53;
+ini.T1=44; %(degsC)
+ini.Ea=108200;%(J/mol)
+ini.hl = 36000; %s
+
+%solvent:water
+sol.dense = 0.998;%(g/mL)
+% set limits of reaction space 
+Limits.lb = [0.04 50 5]; % lower bound [eq_min, T_min, RT_min]
+Limits.ub = [0.09 80 20]; % upper bound[eq_max, T_max, RT_max]
+Limits.dx = [0.005 2 1]; % rounding bound = [eq_err, T_err, RT_err]
+novar =  3; %number of variable
+
+NumberExperiments = 15 ; % 10 experiments for training 
+LHS = lhsdesign(NumberExperiments,novar); %perform an LHS experiment where NumberExperiments and NumberObjects are defined from the GUI
+%Rounds conditions to nearest dx
+
+for i=1:numel(Limits.lb)
+Conditions(:,i)  = LHS(:,i).*(Limits.ub(:,i)-Limits.lb(:,i))+Limits.lb(:,i); %find the conditions from multiplying all rows from colums 1:number of variables
+Conditions(:,i) = round(Conditions(:,i)./Limits.dx(:,i))*Limits.dx(:,i); %rounds the conditions to the nearest integer value
+end
+Conditions= load('lhs_gebn.mat');
+Conditions = Conditions.Conditions;
+DP = repmat(pol.DP,NumberExperiments,1) ;
+wtpercent = repmat(pol.wt,NumberExperiments,1) ;
+nc = horzcat(Conditions, DP, wtpercent);
+
+
+[Final] =  Initialisationsteadstate(Mon,cta, ini, sol, pol, nc);
+
+%% get data from analysis or model, form objective function 
+% objective 1 and 2 is output data from analysis or model as a matrix
+% i.e. 
+Objective1 = Final(:,end-1); %Conversion
+Objective2 = Final(:,end); %dispersity
+ObjectiveFunctions = [-Objective1 Objective2];
+opt = TSEMO_options; 
+opt.NoOfBachSequential =  5; %number of predicted values
+
+[NewConditions] = TSEMO_V2_SOFR(Conditions,ObjectiveFunctions, Limits.lb,Limits.ub, opt);%feed objective function into algorithm
+
+ for i= 1:numel(Limits.lb)
+    NewConditions(:,i) = round(NewConditions(:,i)./Limits.dx(:,i)).*Limits.dx(:,i);
+ end
+
+ %% The resultant conditions are run on the experimental platform 
+ExperimentalData =load("experimentaldata.mat")
+ExperimentalData = ExperimentalData.ExperimentalData
+NewObjectiveFunction  = [-ExperimentalData(:,end), ExperimentalData(:,end-1)]
+Conditions = ExperimentalData(:,2:4);
+opt = TSEMO_options; 
+opt.NoOfBachSequential =  1; %number of predicted values
+[NewConditions] = TSEMO_V2_SOFR(Conditions,NewObjectiveFunction, Limits.lb,Limits.ub, opt);%feed objective function into algorithm
+
+ for i= 1:numel(Limits.lb)
+    NewConditions(:,i) = round(NewConditions(:,i)./Limits.dx(:,i))*Limits.dx(:,i);
+ end
+
+OldConditions = vertcat(Conditions,NewConditions )
